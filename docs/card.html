@@ -1,0 +1,291 @@
+
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>Twitch Clip Cards</title>
+
+    <!-- Flowbite (Tailwind含む) -->
+    <link href="https://cdn.jsdelivr.net/npm/flowbite@3.1.2/dist/flowbite.min.css" rel="stylesheet"/>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="js/jquery-3.7.1.min.js"></script>
+  </head>
+  <body class="bg-white">
+    <main class="mx-auto max-w-screen
+      p-5
+      sm:p-10
+      md:p-10
+      lg:p-10
+      xl:p-10
+      ">
+
+      <!-- heading -->
+      <section class="mb-6 text-center">
+        <h1 class="mb-4 text-4xl font-sans tracking-tight text-gray-900 md:text-5xl lg:text-6xl">
+           <span class="font-bold text-gray-500">STGR</span> Twitch Clip Cards
+        </h1>
+        <div class="text-base font-normal text-gray-600 lg:text-xl">
+          This is a site that displays STGR's Twitch clips in order of the clip's date and time within the broadcast.
+        </div>
+      </section>
+
+      <!-- broadcasters絞り込み -->
+      <div class="col-span-full mb-4">
+        <div id="broadcasterList" class="flex flex-wrap items-center gap-3 p-2 text-gray-900"></div>
+        <!-- search & date filter -->
+        <form id="searchForm" class="max-w-2xl mx-auto mt-2">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+            <div class="md:col-span-2">
+              <label for="titleSearch" class="block mb-1 text-xs text-gray-600">Clip title</label>
+              <div class="relative">
+                <input type="search" id="titleSearch"
+                  class="block w-full p-3 ps-10 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50"
+                  placeholder="Search clip title"/>
+                <button type="submit"
+                  class="text-white absolute end-2 bottom-2 bg-gray-700 hover:bg-gray-800 rounded-lg text-sm px-4 py-2">
+                  Search
+                </button>
+              </div>
+            </div>
+            <div>
+              <label for="vodDay" class="block mb-1 text-xs text-gray-600">Clip date</label>
+              <div class="flex gap-2">
+                <input type="date" id="vodDay" class="block w-full p-3 text-sm text-gray-900 border border-gray-300 rounded-lg bg-gray-50" />
+                <button id="clearVodDay" type="button" class="px-3 py-2 text-xs border rounded-lg text-gray-700">Clear</button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- clips container -->
+      <div id="clipsContainer"></div>
+
+      <!-- read more -->
+      <section class="mb-10 text-center p-4">
+        <a href="#" id="readMore" class="text-sm text-gray-500 underline">Read More...</a>
+      </section>
+
+      <!-- footer -->
+      <footer class="bg-white rounded-lg shadow-sm">
+        <div class="w-full max-w-screen-xl mx-auto p-4 md:py-8">
+          <hr class="my-6 border-gray-200"/>
+          <span class="block text-sm text-gray-500 sm:text-center">© 2025 All Rights Reserved.</span>
+        </div>
+      </footer>
+    </main>
+
+    <!-- modal -->
+    <div id="medium-modal" tabindex="-1"
+      class="fixed inset-0 z-50 hidden p-4 flex items-center justify-center">
+      <div class="relative w-full max-w-full max-h-full mx-auto flex justify-center">
+        <div class="relative bg-black/90 rounded-lg shadow-sm">
+          <!-- header -->
+          <div id="modalTitle" class="flex items-center justify-between p-4 text-base font-sans text-gray-100 truncate"></div>
+          <!-- body -->
+          <div class="flex justify-center p-2">
+            <iframe id="modalIframe"
+              allowfullscreen
+              scrolling="no"
+              class="
+                w-[384px] h-[216px]
+                sm:w-[512px] sm:h-[288px]
+                md:w-[768px] md:h-[432px]
+                lg:w-[960px] lg:h-[540px]
+                xl:w-[960px] xl:h-[540px]
+                border-0
+              "
+            ></iframe>
+          </div>
+          <!-- footer -->
+          <div class="flex justify-between p-2 md:p-4 text-gray-400">
+            <a id="modalLink" href="#" target="_blank"
+              class="hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm ml-5 px-4 py-2">
+                Original Clip Link
+            </a>
+
+            <button type="button" id="closeModal"
+              class="hover:bg-gray-200 hover:text-gray-900 rounded-lg text-sm mr-5 px-4 py-2">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const limit = 25;
+      const defaultGameId = '32982'; // config game stgr
+      let offset = 0;
+      let selectedBroadcasters = [];
+      let currentSearch = "";
+      let currentVodDay = "";
+      let lastVodDay = "";
+
+      // APIからデータ取得
+      function fetchClips(reset=false){
+        if(reset){
+          offset = 0; lastVodDay = "";
+          $("#clipsContainer").empty();
+        }
+        const api_domain = 'https://cherry.minibird.jp';
+        let url = api_domain + `/api/get_clips.php?limit=${limit}&offset=${offset}&sort=desc`;
+        if(defaultGameId){ url += `&game_id=${encodeURIComponent(defaultGameId)}`; }
+        if(selectedBroadcasters.length){
+          url += "&broadcaster_id=" + encodeURIComponent(selectedBroadcasters.join(","));
+        }
+        if(currentSearch) url += "&clip_title=" + encodeURIComponent(currentSearch);
+        if(currentVodDay) url += "&vod_day=" + encodeURIComponent(currentVodDay);
+
+        $.getJSON(url, function(res){
+          if(res.status==="ok"){
+            renderClips(res.data);
+            offset += res.data.length;
+            if(res.data.length < limit){ $("#readMore").hide(); }
+            else { $("#readMore").show(); }
+          }
+        });
+      }
+
+      // Broadcaster一覧取得
+      function fetchBroadcasters(){
+        const api_domain = 'https://cherry.minibird.jp';
+        $.getJSON(api_domain + "/api/get_broadcasters.php", function(res){
+          if(res.status==="ok"){
+            const list = $("#broadcasterList").empty();
+            res.data.forEach(b=>{
+              const img = b.profile_image_url ?
+                `<img class="h-8 w-8 rounded-full border-2 border-gray-300" src="${b.profile_image_url}" alt="${b.name}"/>` :
+                `<div class="h-8 w-8 rounded-full border-2 border-gray-300 flex items-center justify-center bg-gray-200 text-xs">?</div>`;
+              list.append(`
+                <a href="#" data-id="${b.broadcaster_id}" class="flex items-center gap-2 hover:bg-gray-100 px-2 py-1 rounded">
+                  ${img}<span class="text-xs">${b.name}</span>
+                </a>
+              `);
+            });
+          }
+        });
+      }
+
+      // 日付フォーマット
+      function formatDate(dateStr){
+        const d = new Date(dateStr.replace(" ","T"));
+        //return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 ${("0"+d.getHours()).slice(-2)}:${("0"+d.getMinutes()).slice(-2)}`;
+        return `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()} ${("0"+d.getHours()).slice(-2)}:${("0"+d.getMinutes()).slice(-2)}`;
+      }
+      function formatDay(dateStr){
+        const d = new Date(dateStr.replace(" ","T"));
+        return `${d.getFullYear()}.${d.getMonth()+1}.${d.getDate()}`;
+      }
+      function formatYear(dateStr){
+        const d = new Date(dateStr.replace(" ","T"));
+        return `${d.getFullYear()}`;
+      }
+      function formatMonthDay(dateStr){
+        const d = new Date(dateStr.replace(" ","T"));
+        let m = d.getMonth()+1;
+        m =  ("0" + m).slice(-2);
+        return `${m}.${d.getDate()}`;
+      }
+
+      // clips描画
+      function renderClips(data){
+        data.forEach(item=>{
+          if(item.vod_day !== lastVodDay){
+            $("#clipsContainer").append(`
+              <div class="mt-2 col-span-full py-1 px-2 mb-1">
+                <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-gray-700 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M0 18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8H0v10Zm14-7.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm0 4a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm-5-4a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm0 4a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm-5-4a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1Zm0 4a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-1a.5.5 0 0 1-.5-.5v-1ZM20 4a2 2 0 0 0-2-2h-2V1a1 1 0 0 0-2 0v1h-3V1a1 1 0 0 0-2 0v1H6V1a1 1 0 0 0-2 0v1H2a2 2 0 0 0-2 2v2h20V4Z"></path>
+                </svg>
+                <span class="text-2xl font-semibold text-gray-500">
+                ${formatYear(item.vod_day)}.<span class="text-gray-700">${formatMonthDay(item.vod_day)}</span>
+                </span>
+                </div>
+                <hr class="mt-1 border-1 border-gray-300">
+              </div>
+              <div class="grid gap-6 p-4 justify-start grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] md:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] lg:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] xl:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]" data-day="${item.vod_day}"></div>
+            `);
+            lastVodDay = item.vod_day;
+          }
+          const group = $(`#clipsContainer div[data-day="${item.vod_day}"]`);
+          group.append(`
+            <div class="flex flex-col rounded-lg shadow-md overflow-hidden border border-gray-300 hover:bg-gray-100 card"
+                 data-title="${item.clip_title}" data-embed="${item.embed_url}" data-url="${item.url}">
+              <a href="#" class="hover:grayscale">
+                <img class="w-full h-28 mb-1 object-cover" src="${item.thumbnail_url}" alt="${item.clip_title}"/>
+              </a>
+              <div class="flex-1 p-2 flex flex-col justify-between text-gray-900">
+                <div class="flex items-start mb-1 gap-2">
+                  <img class="h-8 w-8 rounded-full border-2 border-gray-300" src="${item.profile_image_url}" alt="${item.broadcaster_name}"/>
+                  <h3 class="text-base tracking-tight">${item.clip_title}</h3>
+                </div>
+                <p class="text-base font-sans text-gray-700 mb-1">${formatDate(item.vod_clip_time)}</p>
+                <p class="text-xs mb-1 truncate">${item.vod_title}</p>
+                <a href="${item.url}" class="text-xs text-gray-500 truncate underline" target="_blank">${item.url}</a>
+              </div>
+            </div>
+          `);
+        });
+      }
+
+      // モーダル表示
+      $(document).on("click",".card",function(e){
+        e.preventDefault();
+        const title=$(this).data("title");
+        let embed=$(this).data("embed");
+        if(embed.indexOf("parent=")===-1){
+          embed += (embed.includes("?")?"&":"?")+"parent="+location.hostname;
+        }
+        $("#modalTitle").text(title);
+        $("#modalIframe").attr("src", embed);
+        $("#modalLink").attr("href", $(this).data("url"));
+        $("#medium-modal").removeClass("hidden");
+      });
+      $("#closeModal").on("click",function(){ $("#medium-modal").addClass("hidden"); $("#modalIframe").attr("src",""); });
+
+      // read more
+      $("#readMore").on("click",function(e){ e.preventDefault(); fetchClips(false); });
+
+      // search
+      $("#searchForm").on("submit",function(e){
+        e.preventDefault();
+        currentSearch=$("#titleSearch").val();
+        fetchClips(true);
+      });
+
+      // vod_day change
+      $(document).on("change", "#vodDay", function(){
+        currentVodDay = $(this).val();
+        fetchClips(true);
+      });
+      $(document).on("click", "#clearVodDay", function(){
+        currentVodDay = "";
+        $("#vodDay").val("");
+        fetchClips(true);
+      });
+
+      // broadcaster click
+      $(document).on("click","#broadcasterList a",function(e){
+        e.preventDefault();
+        const id = String($(this).data("id"));
+        const idx = selectedBroadcasters.indexOf(id);
+        if(idx >= 0){
+          selectedBroadcasters.splice(idx,1);
+          $(this).removeClass("bg-gray-200 ring-1 ring-gray-400");
+        } else {
+          selectedBroadcasters.push(id);
+          $(this).addClass("bg-gray-200 ring-1 ring-gray-400");
+        }
+        fetchClips(true);
+      });
+
+      // 初期ロード
+      $(function(){
+        fetchBroadcasters();
+        fetchClips(true);
+      });
+    </script>
+  </body>
+</html>
